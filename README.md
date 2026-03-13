@@ -1,2 +1,2 @@
 # VencordAutoPatcher
-A tool that auto-runs with your Windows that auto-patches your Discord client.
+## Improves your Vencord usage by making sure Discord updates don't break your Vencord.
