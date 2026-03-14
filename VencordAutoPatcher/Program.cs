@@ -1,18 +1,22 @@
-﻿using Microsoft.Win32;
+﻿using Microsoft.Toolkit.Uwp.Notifications;
+using Microsoft.Win32;
+using Microsoft.WindowsAPICodePack.Dialogs;
 using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using VencordAutoPatcher;
 
 internal class Program
 {
+    [DllImport("user32.dll")]
+    static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     private static void Main(string[] args)
     {
-        Console.Title = "VencordAutoPatcher";
-        Console.SetWindowSize(70, 30);
-        Console.SetBufferSize(70, 30);
+        IntPtr h = Process.GetCurrentProcess().MainWindowHandle;
+        ShowWindow(h, 0);
 
         string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         string vapDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "VencordAutoPatcher");
@@ -22,46 +26,75 @@ internal class Program
 
         if (!File.Exists(configPath))
         {
-            Directory.CreateDirectory(vapDir);
-            ConsoleUtilities.Log("It looks like it's your first time running VAP");
-            ConsoleUtilities.Log("Do you want to setup Auto Start task? (y/n)");
-            string choice = ConsoleUtilities.Ask();
+            using (TaskDialog td = new TaskDialog())
+            {
+                td.Caption = "Vencord Auto Patcher";
+                td.InstructionText = "Do you want to setup Auto Run task?";
+                td.Text = "It looks like it's your first time running this tool.";
 
-            if (choice == "y" || choice == "yes")
-                AutoRun.AddToStartup();
-            
-            File.WriteAllText(configPath, "");
-        }
+                td.Icon = TaskDialogStandardIcon.Shield;
 
-        Console.Clear();
+                td.StandardButtons = TaskDialogStandardButtons.Yes | TaskDialogStandardButtons.No;
 
-        ConsoleUtilities.Log("Downloading Vencord CLI Installer");
-        using (WebClient web = new WebClient())
-            web.DownloadFile("https://github.com/Vencord/Installer/releases/latest/download/VencordInstallerCli.exe", installerPath);
+                TaskDialogResult result = td.Show();
 
-        ConsoleUtilities.Log("Successfully downloaded VencordInstallerCli.exe");
+                if (result == TaskDialogResult.Yes)
+                {
+                    AutoRun.AddToStartup();
+                    File.WriteAllText(configPath, "");
+                }
 
-        ConsoleUtilities.Log("Attempting to kill Discord process for patching.");
-        foreach (var process in Process.GetProcessesByName("Discord"))
-            try { process.Kill(); } catch { }
-
-        ConsoleUtilities.Log("Attempting to patch!");
-        Process patcher = new Process();
-        patcher.StartInfo.FileName = installerPath;
-        patcher.StartInfo.Arguments = "-install -branch auto";
-        patcher.Start();
-        patcher.WaitForExit();
-
-        ConsoleUtilities.Log("Patching completed.");
-
-        if (File.Exists(discordUpdateExe))
-        {
-            ConsoleUtilities.Log("Relaunching Discord.");
-            Process.Start(discordUpdateExe);
+                Patcher.PatchDiscord(installerPath);
+            }
         }
         else
         {
-            ConsoleUtilities.Log("Update.exe not found, cannot restart Discord automatically!!!");
+            using (TaskDialog td = new TaskDialog())
+            {
+                td.Caption = "Vencord Auto Patcher";
+                td.InstructionText = "Do you want to remove Auto Run task?";
+                td.Text = "This will get rid of Vencord Auto Patcher running every start-up.";
+
+                td.Icon = TaskDialogStandardIcon.Information;
+
+                td.StandardButtons = TaskDialogStandardButtons.Yes | TaskDialogStandardButtons.No;
+
+                TaskDialogResult result = td.Show();
+
+                if (result == TaskDialogResult.Yes)
+                {
+                    AutoRun.RemoveFromStartup();
+                    File.Delete(configPath);
+                }
+            }
         }
+
+        if (args.Length > 0 && args[0] == "-autorun")
+        {
+            Process updater = null;
+
+            while (updater == null)
+            {
+                updater = Process.GetProcessesByName("Update").FirstOrDefault();
+                Process discord = Process.GetProcessesByName("Discord").FirstOrDefault();
+
+                if (updater == null && discord != null)
+                    Environment.Exit(0);
+
+                Thread.Sleep(1000);
+            }
+
+            Notify("Discord has been updated, patching will occur.");
+            updater.WaitForExit();
+
+            Patcher.PatchDiscord(installerPath);
+        }
+    }
+
+    public static void Notify(string message)
+    {
+        new ToastContentBuilder() .AddText("Vencord Auto Patcher")
+            .AddText(message) 
+            .Show(); 
     }
 }
